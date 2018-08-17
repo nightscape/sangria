@@ -8,8 +8,8 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 import scala.collection.mutable.{Map ⇒ MutableMap, Set ⇒ MutableSet}
 
-class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]], fallback: Option[DeferredResolver[Ctx]]) extends DeferredResolver[Ctx] {
-  private val fetchersMap: Map[AnyRef, Fetcher[Ctx, _, _, _]] @uncheckedVariance =
+class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _, _]], fallback: Option[DeferredResolver[Ctx]]) extends DeferredResolver[Ctx] {
+  private val fetchersMap: Map[AnyRef, Fetcher[Ctx, _, _, _, _]] @uncheckedVariance =
     fetchers.map(f ⇒ f → f).toMap
 
   override def groupDeferred[T <: DeferredWithInfo](deferred: Vector[T]) =
@@ -27,16 +27,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
     val fetcherCaches = queryState.asInstanceOf[Map[AnyRef, FetcherCache]]
 
     val grouped = deferred groupBy {
-      case FetcherDeferredOne(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredOpt(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredOptOpt(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredSeq(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredSeqOpt(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredSeqOptExplicit(s, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredRel(s, _, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredRelOpt(s, _, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredRelSeq(s, _, _) ⇒ fetchersMap.get(s)
-      case FetcherDeferredRelSeqMany(s, _, _) ⇒ fetchersMap.get(s)
+      case f: BasicFetcherDeferred[_, _, _, _, _] ⇒ fetchersMap.get(f.source)
       case _ ⇒ None
     }
 
@@ -73,7 +64,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
     deferredToResolve: Vector[Deferred[Any]],
     resolved: MutableMap[Deferred[Any], Future[Any]]
   )(implicit ec: ExecutionContext) = {
-    val f = ctx.fetcher.asInstanceOf[Fetcher[Ctx, Any, Any, Any]]
+    val f = ctx.fetcher.asInstanceOf[Fetcher[Ctx, Any, Any, Any, Any]]
     val relIds = ctx.fetcher.relIds(deferredToResolve)
 
     val (nonCachedIds, cachedResults) = partitionCachedRel(ctx.cache, relIds)
@@ -87,7 +78,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
 
     deferredToResolve foreach { deferred ⇒
       resolved(deferred) = newResults.map { m ⇒
-        val f = ctx.fetcher.asInstanceOf[Fetcher[Any, Any, Any, Any]]
+        val f = ctx.fetcher.asInstanceOf[Fetcher[Any, Any, Any, Any, Any]]
 
         deferred match {
           case FetcherDeferredRel(_, rel, relId) if cachedResults.contains(rel) && cachedResults(rel).contains(relId) ⇒
@@ -136,7 +127,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
     }
   }
 
-  private def removeDuplicates(fetcher: Fetcher[Any, Any, Any, Any], values: Seq[Any]) = {
+  private def removeDuplicates(fetcher: Fetcher[Any, Any, Any, Any, Any], values: Seq[Any]) = {
     val seen = MutableSet[Any]()
 
     values.filter { v ⇒
@@ -155,7 +146,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
     deferredToResolve: Vector[Deferred[Any]],
     resolved: MutableMap[Deferred[Any], Future[Any]]
   )(implicit ec: ExecutionContext) = {
-    val f = ctx.fetcher.asInstanceOf[Fetcher[Ctx, Any, Any, Any]]
+    val f = ctx.fetcher.asInstanceOf[Fetcher[Ctx, Any, Any, Any, Any]]
     val ids = ctx.fetcher.ids(deferredToResolve)
     val (nonCachedIds, cachedResults) = partitionCached(ctx.cache, ids)
 
@@ -189,7 +180,7 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
 
     deferredToResolve foreach { deferred ⇒
       resolved(deferred) = futureRes.map { m ⇒
-        val f = ctx.fetcher.asInstanceOf[Fetcher[Any, Any, Any, Any]]
+        val f = ctx.fetcher.asInstanceOf[Fetcher[Any, Any, Any, Any, Any]]
 
         def updateCache[T](id: Any, v: T): T = ctx.cache match {
           case Some(cache) ⇒
@@ -387,8 +378,8 @@ class FetcherBasedDeferredResolver[-Ctx](fetchers: Vector[Fetcher[Ctx, _, _, _]]
   }
 }
 
-case class AbsentDeferredValueError(fetcher: Fetcher[Any, Any, Any, Any], deferred: Deferred[Any], id: Any)
+case class AbsentDeferredValueError(fetcher: Fetcher[Any, Any, Any, Any, Any], deferred: Deferred[Any], id: Any)
   extends Exception(s"Fetcher has not resolved non-optional ID '$id'.")
 
-case class AbsentDeferredRelValueError(fetcher: Fetcher[Any, Any, Any, Any], deferred: Deferred[Any], rel: Relation[Any, Any, Any], relId: Any)
+case class AbsentDeferredRelValueError(fetcher: Fetcher[Any, Any, Any, Any, Any], deferred: Deferred[Any], rel: Relation[Any, Any, Any], relId: Any)
   extends Exception(s"Fetcher has not resolved non-optional relation ID '$relId' for relation '$rel'.")
